@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="eu">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Manex-en Logela 3D</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap');
+*{margin:0;padding:0;box-sizing:border-box}
+body{overflow:hidden;background:#2c3e50;font-family:'Nunito',sans-serif}
+canvas{display:block}
+
+#ui{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:10}
+
+#title-bar{
+  position:fixed;top:14px;left:50%;transform:translateX(-50%);
+  background:rgba(20,20,30,0.82);backdrop-filter:blur(12px);
+  border:1px solid rgba(255,255,255,0.1);border-radius:14px;
+  padding:8px 24px;display:flex;align-items:center;gap:14px;
+  pointer-events:auto;
+}
+#title-bar h1{font-size:1rem;font-weight:800;color:#e2e8f0;letter-spacing:1.5px}
+
+#controls{
+  position:fixed;bottom:16px;left:50%;transform:translateX(-50%);
+  display:flex;gap:6px;pointer-events:auto;flex-wrap:wrap;justify-content:center;
+}
+.btn{
+  padding:8px 16px;
+  background:rgba(20,20,30,0.82);backdrop-filter:blur(12px);
+  border:1px solid rgba(255,255,255,0.12);border-radius:10px;
+  color:#94a3b8;font-family:'Nunito',sans-serif;font-size:0.78rem;font-weight:700;
+  cursor:pointer;transition:all 0.2s;user-select:none;
+}
+.btn:hover{background:rgba(40,50,70,0.9);color:#e2e8f0;border-color:rgba(100,170,255,0.4)}
+.btn.active{background:rgba(59,130,246,0.3);border-color:#3b82f6;color:#93c5fd}
+.btn.special{border-color:rgba(250,200,50,0.4);color:#fcd34d}
+.btn.special:hover{border-color:#fbbf24;color:#fef3c7;background:rgba(250,200,50,0.15)}
+.btn.special.active{background:rgba(250,200,50,0.25);border-color:#fbbf24;color:#fde68a}
+
+#help{
+  position:fixed;bottom:16px;right:16px;
+  background:rgba(20,20,30,0.82);backdrop-filter:blur(12px);
+  border:1px solid rgba(255,255,255,0.08);border-radius:12px;
+  padding:10px 14px;color:#64748b;font-size:0.7rem;line-height:1.7;
+  pointer-events:auto;
+}
+#help b{color:#94a3b8}
+
+#label{
+  position:fixed;top:65px;left:50%;transform:translateX(-50%);
+  background:rgba(20,20,30,0.88);backdrop-filter:blur(12px);
+  border:1px solid rgba(100,170,255,0.25);border-radius:12px;
+  padding:10px 22px;color:#93c5fd;font-size:0.9rem;font-weight:700;
+  pointer-events:none;opacity:0;transition:opacity 0.35s;
+}
+#label.show{opacity:1}
+
+#loading{
+  position:fixed;top:0;left:0;width:100%;height:100%;
+  background:#1a1a2e;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  z-index:100;transition:opacity 0.5s;
+}
+#loading.hide{opacity:0;pointer-events:none}
+#loading h1{font-size:2rem;font-weight:800;color:#e2e8f0;margin-bottom:4px}
+#loading p{color:#64748b;font-size:0.9rem;margin-bottom:24px}
+.spinner{width:36px;height:36px;border:3px solid rgba(255,255,255,0.06);border-top-color:#3b82f6;border-radius:50%;animation:sp 0.7s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<div id="loading"><h1>Manex-en Logela</h1><p>3D eredua kargatzen...</p><div class="spinner"></div></div>
+
+<div id="ui">
+  <div id="title-bar"><h1>MANEX-EN LOGELA — 3D</h1></div>
+  <div id="controls">
+    <button class="btn" onclick="flyTo('overview')">Orokorra</button>
+    <button class="btn" onclick="flyTo('bed')">Ohea</button>
+    <button class="btn" onclick="flyTo('desk')">Mahaia</button>
+    <button class="btn" onclick="flyTo('wardrobe')">Armairua</button>
+    <button class="btn" onclick="flyTo('top')">Goitik</button>
+    <button class="btn special" id="wallBtn" onclick="toggleWalls()">Hormak: Gardenak</button>
+    <button class="btn special" id="roofBtn" onclick="toggleRoof()">Sabaia: Kenduta</button>
+  </div>
+  <div id="help"><b>Ezker:</b> biratu · <b>Eskuin:</b> mugitu · <b>Gurpila:</b> zoom</div>
+  <div id="label"></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ─── CONFIG ───
+const RW=4.2, RD=3.6, RH=2.8;
+
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x4a6741);
+
+const camera=new THREE.PerspectiveCamera(45,innerWidth/innerHeight,0.05,80);
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(innerWidth,innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.shadowMap.enabled=true;
+renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure=1.2;
+document.body.appendChild(renderer.domElement);
+
+// ─── Outdoor environment ───
+// Ground plane (garden)
+const groundGeo=new THREE.PlaneGeometry(40,40);
+const groundMat=new THREE.MeshStandardMaterial({color:0x5a8f4a,roughness:0.95});
+const ground=new THREE.Mesh(groundGeo,groundMat);
+ground.rotation.x=-Math.PI/2;ground.position.y=-0.02;ground.receiveShadow=true;
+scene.add(ground);
+
+// Some trees/bushes outside
+function addTree(x,z,h){
+  const trunk=new THREE.Mesh(new THREE.CylinderGeometry(0.08,0.12,h*0.4,8),new THREE.MeshStandardMaterial({color:0x6b4226,roughness:0.9}));
+  trunk.position.set(x,h*0.2,z);trunk.castShadow=true;scene.add(trunk);
+  const crown=new THREE.Mesh(new THREE.SphereGeometry(h*0.35,8,8),new THREE.MeshStandardMaterial({color:0x3d7a2a+Math.floor(Math.random()*0x1a0000),roughness:0.85}));
+  crown.position.set(x,h*0.55,z);crown.castShadow=true;scene.add(crown);
+}
+addTree(-5,2,3.5);addTree(-4.5,-2,2.8);addTree(5,3,3.2);addTree(4,-4,2.5);
+addTree(-6,-1,4);addTree(6,1,3);
+
+// Bush clusters
+function addBush(x,z){
+  const b=new THREE.Mesh(new THREE.SphereGeometry(0.4+Math.random()*0.3,8,6),new THREE.MeshStandardMaterial({color:0x4a7a3a,roughness:0.9}));
+  b.position.set(x,0.25,z);b.scale.y=0.6;b.castShadow=true;scene.add(b);
+}
+addBush(-3.5,2.8);addBush(-3,2.5);addBush(3.5,-2.5);addBush(-2.5,-3);
+
+// ─── LIGHTS ───
+const hemi=new THREE.HemisphereLight(0x87ceeb,0x4a7a3a,0.45);
+scene.add(hemi);
+
+const sun=new THREE.DirectionalLight(0xfff5e0,1.0);
+sun.position.set(-6,10,4);sun.castShadow=true;
+sun.shadow.mapSize.set(2048,2048);
+sun.shadow.camera.near=0.5;sun.shadow.camera.far=30;
+sun.shadow.camera.left=-10;sun.shadow.camera.right=10;
+sun.shadow.camera.top=10;sun.shadow.camera.bottom=-10;
+sun.shadow.bias=-0.001;
+scene.add(sun);
+
+const roomLight=new THREE.PointLight(0xfff8e7,0.5,8);
+roomLight.position.set(0,2.3,0);roomLight.castShadow=true;
+scene.add(roomLight);
+
+const winLight1=new THREE.SpotLight(0xfff8e7,0.4,6,Math.PI/5);
+winLight1.position.set(-RW/2-0.5,2,1);
+winLight1.target.position.set(0,0.5,1);
+scene.add(winLight1);scene.add(winLight1.target);
+
+const winLight2=new THREE.SpotLight(0xfff8e7,0.3,6,Math.PI/5);
+winLight2.position.set(-RW/2-0.5,2,-0.5);
+winLight2.target.position.set(0,0.5,-0.5);
+scene.add(winLight2);scene.add(winLight2.target);
+
+// ─── MATERIALS ───
+function M(color,rough=0.7,opts={}){
+  return new THREE.MeshStandardMaterial({color,roughness:rough,...opts});
+}
+
+const mt={
+  wallInt:M(0xf0ede8,0.92),
+  wallExt:M(0xe8e0d4,0.8),
+  wallGray:M(0x8a929e,0.85),
+  floor:M(0xc4a882,0.65),
+  floorPlank:M(0xb89b72,0.7),
+  ceiling:M(0xf5f0eb,0.95),
+  baseboard:M(0xe8e0d4,0.7),
+  white:M(0xf5f3ef,0.55),
+  cream:M(0xfaf6f0,0.6),
+  warmWhite:M(0xfaf8f5,0.5),
+  wood:M(0xc9a06c,0.6),
+  woodLight:M(0xd4b48a,0.55),
+  woodDark:M(0x7a5c3a,0.55),
+  blueDark:M(0x1e3a5f,0.75),
+  blueNavy:M(0x243b6a,0.7),
+  blueMid:M(0x4a7ab5,0.65),
+  blueLight:M(0x93c5fd,0.6),
+  bluePale:M(0xc5ddf5,0.7),
+  blueBaby:M(0xdbeafe,0.65),
+  stripeWhite:M(0xf8f9fa,0.6),
+  black:M(0x1a1a24,0.5),
+  chairDark:M(0x2a2a35,0.45),
+  chairMetal:M(0x4a4a55,0.3),
+  bean:M(0x1a3a8a,0.82),
+  stitch:M(0x38bdf8,0.65),
+  stitchDark:M(0x2096c9,0.6),
+  red:M(0xd63031,0.6),
+  green:M(0x27ae60,0.65),
+  yellow:M(0xf1c40f,0.55),
+  orange:M(0xe67e22,0.6),
+  glass:M(0xd0e8f5,0.05,{transparent:true,opacity:0.25}),
+  glassFrame:M(0xf0f0f0,0.4),
+  shutter:M(0xbac4cf,0.55),
+  shutterSlat:M(0xa8b4c0,0.5),
+  lampShade:M(0xfef3c7,0.35,{transparent:true,opacity:0.82,emissive:0xfef3c7,emissiveIntensity:0.25}),
+  poster:M(0xf5e6a0,0.5),
+  posterArt:M(0xe8d060,0.5),
+  growthChart:M(0xfefcf5,0.75),
+  carpet:M(0xcdd1d6,0.88),
+  carpetDark:M(0xa5adb5,0.85),
+  doorWhite:M(0xf0ece6,0.6),
+  soccer:M(0xfafafa,0.45),
+  globe:M(0x5b9bd5,0.4),
+  globeLand:M(0x6dba72,0.45),
+  globeBase:M(0x8b6c4a,0.55),
+  corkBoard:M(0xb8956a,0.8),
+  photo:M(0xe2d8cc,0.65),
+  plantGreen:M(0x3a8a4a,0.7),
+  potTerra:M(0xc17a52,0.7),
+};
+
+// ─── HELPERS ───
+function bx(w,h,d,m){const g=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),m);g.castShadow=true;g.receiveShadow=true;return g}
+function cy(rt,rb,h,s,m){const g=new THREE.Mesh(new THREE.CylinderGeometry(rt,rb,h,s),m);g.castShadow=true;return g}
+function sp(r,m){const g=new THREE.Mesh(new THREE.SphereGeometry(r,16,12),m);g.castShadow=true;return g}
+function pos(mesh,x,y,z){mesh.position.set(x,y,z);return mesh}
+function addTo(parent,...children){children.forEach(c=>parent.add(c))}
+
+// ─── ROOM STRUCTURE ───
+const wallsGroup=new THREE.Group();
+const ceilingGroup=new THREE.Group();
+
+// Floor with plank effect
+const floorBase=bx(RW,0.1,RD,mt.floor);pos(floorBase,0,-0.05,0);floorBase.receiveShadow=true;scene.add(floorBase);
+for(let i=0;i<14;i++){
+  const plank=bx(RW,0.005,0.24,i%3===0?mt.floorPlank:mt.floor);
+  pos(plank,0,0.005,-RD/2+0.13+i*0.26);plank.receiveShadow=true;scene.add(plank);
+}
+
+// Walls — double sided with thickness
+const WT=0.12;
+function makeWall(w,h,x,y,z,ry,isGray){
+  const g=new THREE.Group();
+  // Exterior
+  const ext=bx(w,h,WT,mt.wallExt);pos(ext,0,0,0);g.add(ext);
+  // Interior face
+  const int=bx(w-0.01,h-0.01,0.005,isGray?mt.wallGray:mt.wallInt);
+  pos(int,0,0,-WT/2-0.002);g.add(int);
+  // Baseboard
+  if(!isGray){
+    const bb=bx(w,0.08,0.02,mt.baseboard);
+    pos(bb,0,-h/2+0.04,-WT/2-0.01);g.add(bb);
+  }
+  g.position.set(x,y,z);g.rotation.y=ry;
+  return g;
+}
+
+// Back wall (Z-) wardrobe
+const wBack=makeWall(RW,RH*0.75,0,RH*0.375,-RD/2-WT/2,0,false);
+const wBackTop=makeWall(RW,RH*0.25,0,RH*0.875,-RD/2-WT/2,0,true);
+wallsGroup.add(wBack,wBackTop);
+
+// Front wall (Z+) bed
+const wFront=makeWall(RW,RH*0.75,0,RH*0.375,RD/2+WT/2,Math.PI,false);
+const wFrontTop=makeWall(RW,RH*0.25,0,RH*0.875,RD/2+WT/2,Math.PI,false);
+wallsGroup.add(wFront,wFrontTop);
+
+// Left wall (X-) windows
+const wLeft=makeWall(RD,RH*0.75,-RW/2-WT/2,RH*0.375,0,Math.PI/2,false);
+const wLeftTop=makeWall(RD,RH*0.25,-RW/2-WT/2,RH*0.875,0,Math.PI/2,false);
+wallsGroup.add(wLeft,wLeftTop);
+
+// Right wall (X+) desk/poster
+const wRight=makeWall(RD,RH*0.75,RW/2+WT/2,RH*0.375,0,-Math.PI/2,false);
+const wRightTop=makeWall(RD,RH*0.25,RW/2+WT/2,RH*0.875,0,-Math.PI/2,false);
+wallsGroup.add(wRight,wRightTop);
+
+scene.add(wallsGroup);
+
+// Ceiling
+const ceil=bx(RW+WT*2,0.1,RD+WT*2,mt.ceiling);pos(ceil,0,RH+0.05,0);
+ceilingGroup.add(ceil);scene.add(ceilingGroup);
+
+// ─── CARPET ───
+const carpetMesh=bx(1.5,0.015,1.1,mt.carpet);pos(carpetMesh,-0.2,0.01,0.2);scene.add(carpetMesh);
+for(let i=0;i<4;i++)for(let j=0;j<3;j++){
+  if((i+j)%2===0){const sq=bx(0.28,0.018,0.28,mt.carpetDark);pos(sq,-0.2-0.48+i*0.36,0.013,0.2-0.28+j*0.36);scene.add(sq)}
+}
+
+// ─── BED ───
+const bed=new THREE.Group();
+const bedBase=bx(2.0,0.32,0.95,mt.warmWhite);pos(bedBase,0,0.16,0);bed.add(bedBase);
+// Side rail
+const sideRail=bx(2.02,0.06,0.03,mt.warmWhite);pos(sideRail,0,0.35,0.47);bed.add(sideRail);
+const sideRail2=bx(2.02,0.06,0.03,mt.warmWhite);pos(sideRail2,0,0.35,-0.47);bed.add(sideRail2);
+// Headboard
+const hb=bx(0.05,0.55,0.97,mt.warmWhite);pos(hb,-1.0,0.42,0);bed.add(hb);
+// Drawers
+for(let i=0;i<2;i++){
+  const dr=bx(0.88,0.13,0.025,mt.cream);pos(dr,-0.45+i*0.93,0.1,0.49);bed.add(dr);
+  const hn=bx(0.14,0.015,0.02,mt.chairMetal);pos(hn,-0.45+i*0.93,0.1,0.51);bed.add(hn);
+}
+// Mattress
+const matt=bx(1.86,0.12,0.88,mt.cream);pos(matt,0,0.44,0);bed.add(matt);
+// Duvet - blue/white stripes
+const duvet=bx(1.5,0.06,0.84,mt.blueBaby);pos(duvet,0.15,0.53,0);bed.add(duvet);
+for(let i=0;i<5;i++){
+  const st=bx(1.5,0.065,0.06,i%2===0?mt.bluePale:mt.stripeWhite);pos(st,0.15,0.535,-0.35+i*0.16);bed.add(st);
+}
+// Duvet fold edge
+const fold=bx(0.08,0.07,0.82,mt.bluePale);pos(fold,0.92,0.54,0);bed.add(fold);
+// Pillows
+const p1=bx(0.3,0.1,0.5,mt.cream);pos(p1,-0.75,0.55,0);p1.rotation.y=0.05;bed.add(p1);
+const p2=bx(0.28,0.09,0.32,mt.blueDark);pos(p2,-0.55,0.58,0.25);bed.add(p2);
+// Blue plaid blanket folded at foot
+const plaid=bx(0.4,0.04,0.7,mt.blueMid);pos(plaid,0.75,0.56,-0.05);bed.add(plaid);
+
+// Stitch plush
+const stitchG=new THREE.Group();
+const sBody=sp(0.14,mt.stitch);pos(sBody,0,0,0);stitchG.add(sBody);
+const sHead=sp(0.11,mt.stitch);pos(sHead,0,0.2,0);stitchG.add(sHead);
+const sEar1=bx(0.04,0.2,0.05,mt.stitchDark);pos(sEar1,-0.08,0.35,0);sEar1.rotation.z=0.35;stitchG.add(sEar1);
+const sEar2=bx(0.04,0.2,0.05,mt.stitchDark);pos(sEar2,0.08,0.35,0);sEar2.rotation.z=-0.35;stitchG.add(sEar2);
+const sEye1=sp(0.03,mt.black);pos(sEye1,-0.04,0.23,0.09);stitchG.add(sEye1);
+const sEye2=sp(0.03,mt.black);pos(sEye2,0.04,0.23,0.09);stitchG.add(sEye2);
+const sNose=sp(0.015,mt.blueDark);pos(sNose,0,0.19,0.1);stitchG.add(sNose);
+stitchG.position.set(-0.35,0.68,0.2);bed.add(stitchG);
+
+// Teddy
+const tBody=sp(0.06,mt.woodLight);pos(tBody,-0.72,0.58,-0.12);bed.add(tBody);
+const tHead=sp(0.045,mt.woodLight);pos(tHead,-0.72,0.66,-0.12);bed.add(tHead);
+
+bed.position.set(-0.9,0,1.15);scene.add(bed);
+
+// ─── BEDSIDE TABLE ───
+const st=bx(0.4,0.04,0.3,mt.warmWhite);pos(st,0.5,0.38,1.4);scene.add(st);
+for(let dx of[-0.14,0.14])for(let dz of[-0.1,0.1]){
+  const lg=bx(0.035,0.36,0.035,mt.woodLight);pos(lg,0.5+dx,0.18,1.4+dz);scene.add(lg);
+}
+// Soccer ball
+const soccer=sp(0.085,mt.soccer);pos(soccer,0.5,0.47,1.4);scene.add(soccer);
+for(let i=0;i<6;i++){
+  const pa=bx(0.025,0.025,0.005,mt.black);
+  const a=(i/6)*Math.PI*2;
+  pos(pa,0.5+Math.cos(a)*0.065,0.47+Math.sin(a)*0.065,1.4+0.07);scene.add(pa);
+}
+
+// ─── DESK ───
+const desk=new THREE.Group();
+const dtop=bx(1.6,0.035,0.62,mt.warmWhite);pos(dtop,0,0.74,0);desk.add(dtop);
+// Drawer unit right
+const du=bx(0.38,0.68,0.56,mt.warmWhite);pos(du,0.58,0.35,0);desk.add(du);
+for(let i=0;i<4;i++){
+  const df=bx(0.35,0.13,0.015,mt.cream);pos(df,0.58,0.1+i*0.16,-0.29);desk.add(df);
+  const dh=bx(0.12,0.012,0.01,mt.chairMetal);pos(dh,0.58,0.1+i*0.16,-0.3);desk.add(dh);
+}
+// Left legs
+const dl1=bx(0.04,0.72,0.04,mt.warmWhite);pos(dl1,-0.76,0.36,-0.27);desk.add(dl1);
+const dl2=bx(0.04,0.72,0.04,mt.warmWhite);pos(dl2,-0.76,0.36,0.27);desk.add(dl2);
+const dlBar=bx(0.04,0.04,0.5,mt.warmWhite);pos(dlBar,-0.76,0.15,0);desk.add(dlBar);
+
+// Laptop (closed - black notebook from photo)
+const laptop=bx(0.3,0.02,0.22,mt.black);pos(laptop,-0.3,0.77,-0.05);desk.add(laptop);
+// Red "NOTE" text on laptop
+const noteLabel=bx(0.1,0.005,0.04,mt.red);pos(noteLabel,-0.3,0.785,-0.05);desk.add(noteLabel);
+
+// Pencil cup
+const pcup=cy(0.028,0.032,0.09,8,mt.black);pos(pcup,0.1,0.8,-0.15);desk.add(pcup);
+// Pencils
+for(let i=0;i<3;i++){
+  const pen=cy(0.004,0.004,0.12,6,[mt.green,mt.red,mt.yellow][i]);
+  pos(pen,0.1+i*0.012-0.01,0.88,-0.15);pen.rotation.z=0.05*i-0.03;desk.add(pen);
+}
+
+// Water bottle (blue)
+const bottle=cy(0.025,0.025,0.14,8,mt.blueMid);pos(bottle,0.3,0.83,0.1);desk.add(bottle);
+const cap=cy(0.027,0.027,0.02,8,mt.blueDark);pos(cap,0.3,0.91,0.1);desk.add(cap);
+
+// Desk lamp
+const lBase=cy(0.05,0.055,0.015,12,mt.black);pos(lBase,-0.6,0.76,-0.18);desk.add(lBase);
+const lArm=cy(0.01,0.01,0.32,8,mt.black);pos(lArm,-0.6,0.93,-0.18);desk.add(lArm);
+const lHead=bx(0.07,0.045,0.09,mt.black);pos(lHead,-0.58,1.1,-0.18);lHead.rotation.z=0.15;desk.add(lHead);
+
+// Papers/folders on desk
+const paper=bx(0.22,0.015,0.3,mt.cream);pos(paper,0.15,0.76,0.1);desk.add(paper);
+
+desk.position.set(1.25,0,-0.3);desk.rotation.y=-Math.PI/2;scene.add(desk);
+
+// ─── CHAIR ───
+const chair=new THREE.Group();
+const cSeat=bx(0.43,0.06,0.42,mt.chairDark);pos(cSeat,0,0.46,0);chair.add(cSeat);
+// Padded backrest
+const cBack=bx(0.42,0.48,0.045,mt.chairDark);pos(cBack,0,0.74,-0.19);cBack.rotation.x=0.06;chair.add(cBack);
+// Padding detail
+const cPad=bx(0.38,0.42,0.01,mt.black);pos(cPad,0,0.74,-0.21);cPad.rotation.x=0.06;chair.add(cPad);
+// Armrests
+for(let s of[-1,1]){
+  const arm=bx(0.04,0.04,0.2,mt.chairDark);pos(arm,s*0.2,0.52,-0.05);chair.add(arm);
+}
+const cPost=cy(0.022,0.022,0.34,8,mt.chairMetal);pos(cPost,0,0.26,0);chair.add(cPost);
+for(let i=0;i<5;i++){
+  const a=(i/5)*Math.PI*2;
+  const cArm=bx(0.2,0.02,0.022,mt.chairMetal);
+  pos(cArm,Math.cos(a)*0.1,0.06,Math.sin(a)*0.1);cArm.rotation.y=a;chair.add(cArm);
+  const wh=cy(0.018,0.018,0.025,8,mt.black);
+  pos(wh,Math.cos(a)*0.22,0.025,Math.sin(a)*0.22);wh.rotation.x=Math.PI/2;chair.add(wh);
+}
+chair.position.set(0.8,0,0.1);chair.rotation.y=Math.PI*0.7;scene.add(chair);
+
+// ─── WARDROBE ───
+const ward=new THREE.Group();
+const wBody=bx(1.55,1.88,0.52,mt.warmWhite);pos(wBody,0,0.96,0);ward.add(wBody);
+// 3 door panels with vertical tongue-and-groove
+for(let d=-1;d<=1;d++){
+  const door=bx(0.49,1.8,0.025,mt.cream);pos(door,d*0.51,0.96,-0.28);ward.add(door);
+  for(let l=-3;l<=3;l++){
+    const groove=bx(0.003,1.72,0.003,mt.carpetDark);pos(groove,d*0.51+l*0.06,0.96,-0.3);ward.add(groove);
+  }
+  // Round knobs (bluish)
+  const knob=sp(0.02,mt.blueLight);pos(knob,d*0.51,1.0,-0.31);ward.add(knob);
+}
+// Bookshelf right
+const bsBody=bx(0.38,1.88,0.52,mt.warmWhite);pos(bsBody,0.96,0.96,0);ward.add(bsBody);
+for(let i=0;i<4;i++){
+  const sh=bx(0.34,0.015,0.48,mt.warmWhite);pos(sh,0.96,0.25+i*0.42,0);ward.add(sh);
+}
+// Books
+const bkColors=[mt.red,mt.blueDark,mt.green,mt.yellow,mt.orange,mt.blueMid];
+for(let s=0;s<3;s++){
+  for(let b=0;b<4;b++){
+    const h=0.16+Math.random()*0.08;
+    const bk=bx(0.05,h,0.12,bkColors[(s*4+b)%6]);
+    pos(bk,0.96-0.1+b*0.07,0.34+s*0.42+h/2,0);ward.add(bk);
+  }
+}
+// Stuffed bear on top
+const topBear=sp(0.07,mt.cream);pos(topBear,0.96,1.95,0.05);ward.add(topBear);
+const topBearHead=sp(0.05,mt.cream);pos(topBearHead,0.96,2.05,0.05);ward.add(topBearHead);
+// Small felt plant on wardrobe handle
+const fPlant=sp(0.025,mt.plantGreen);pos(fPlant,0.51,1.12,-0.33);ward.add(fPlant);
+const fPot=cy(0.015,0.018,0.03,6,mt.potTerra);pos(fPot,0.51,1.08,-0.33);ward.add(fPot);
+
+ward.position.set(-0.3,0,-1.46);scene.add(ward);
+
+// ─── DOOR ───
+const doorG=new THREE.Group();
+const dFrame=bx(0.7,2.1,WT+0.04,mt.baseboard);pos(dFrame,0,1.05,0);doorG.add(dFrame);
+const dPanel=bx(0.62,2.0,0.04,mt.doorWhite);pos(dPanel,0,1.02,0.02);doorG.add(dPanel);
+// Panel insets
+const dIns1=bx(0.46,0.3,0.01,mt.cream);pos(dIns1,0,1.6,0.045);doorG.add(dIns1);
+const dIns2=bx(0.46,0.5,0.01,mt.cream);pos(dIns2,0,0.8,0.045);doorG.add(dIns2);
+// "MANEX" colorful letter blocks at top
+const ltCols=[mt.red,mt.green,mt.blueMid,mt.orange,mt.yellow];
+for(let i=0;i<5;i++){
+  const lb=bx(0.075,0.08,0.01,ltCols[i]);pos(lb,-0.18+i*0.09,1.95,0.05);doorG.add(lb);
+}
+// Handle
+const dHandle=bx(0.02,0.08,0.04,mt.chairMetal);pos(dHandle,0.22,1.0,0.05);doorG.add(dHandle);
+doorG.position.set(-1.6,0,-RD/2-WT/2);scene.add(doorG);
+
+// ─── WINDOWS ───
+function makeWindow(x,y,z,ry){
+  const wg=new THREE.Group();
+  // Outer frame
+  const fr=bx(0.82,1.05,0.08,mt.glassFrame);pos(fr,0,0,0);wg.add(fr);
+  // Glass panes
+  const g1=bx(0.34,0.88,0.015,mt.glass);pos(g1,-0.17,0,0);wg.add(g1);
+  const g2=bx(0.34,0.88,0.015,mt.glass);pos(g2,0.17,0,0);wg.add(g2);
+  // Mullions
+  const hm=bx(0.78,0.025,0.035,mt.glassFrame);pos(hm,0,0,0.015);wg.add(hm);
+  const vm=bx(0.025,1.0,0.035,mt.glassFrame);pos(vm,0,0,0.015);wg.add(vm);
+  // Roller shutter box
+  const sb=bx(0.84,0.08,0.1,mt.shutter);pos(sb,0,0.56,0);wg.add(sb);
+  // Partially open shutter slats
+  for(let i=0;i<4;i++){
+    const sl=bx(0.78,0.025,0.02,mt.shutterSlat);pos(sl,0,0.42-i*0.05,0.04);wg.add(sl);
+  }
+  // Sill
+  const sill=bx(0.88,0.03,0.1,mt.glassFrame);pos(sill,0,-0.54,0.03);wg.add(sill);
+  
+  wg.position.set(x,y,z);wg.rotation.y=ry;scene.add(wg);return wg;
+}
+makeWindow(-RW/2-WT/2+0.01,1.5,1.0,Math.PI/2);
+makeWindow(-RW/2-WT/2+0.01,1.5,-0.5,Math.PI/2);
+
+// ─── WALL DECO ───
+// Airplane stickers (front wall, interior)
+function addPlane(x,y,z,s,rz){
+  const pg=new THREE.Group();
+  const body=bx(0.2*s,0.055*s,0.005,mt.yellow);pg.add(body);
+  const wing=bx(0.07*s,0.16*s,0.005,mt.blueLight);pos(wing,0.02,0,0.001);pg.add(wing);
+  const tail=bx(0.04*s,0.08*s,0.005,mt.red);pos(tail,-0.1*s,0.03*s,0);pg.add(tail);
+  // Propeller
+  const prop=bx(0.01*s,0.06*s,0.005,mt.chairMetal);pos(prop,0.11*s,0,0.001);pg.add(prop);
+  pg.position.set(x,y,z);pg.rotation.z=rz;scene.add(pg);
+}
+addPlane(-1.2,2.2,RD/2-0.01,1.2,0.1);
+addPlane(-0.5,2.35,RD/2-0.01,0.9,-0.12);
+addPlane(-1.5,1.85,RD/2-0.01,0.65,0.18);
+addPlane(-0.15,2.0,RD/2-0.01,1.0,-0.05);
+
+// Helicopter
+const heli=new THREE.Group();
+heli.add(bx(0.14,0.07,0.005,mt.blueLight));
+const rotor=bx(0.24,0.008,0.005,mt.chairMetal);pos(rotor,0,0.05,0);heli.add(rotor);
+const hTail=bx(0.1,0.03,0.005,mt.bluePale);pos(hTail,-0.1,0.01,0);heli.add(hTail);
+heli.position.set(-0.8,2.5,RD/2-0.01);scene.add(heli);
+
+// Clouds
+function addCloud(x,y,z){
+  const c=new THREE.Group();
+  c.add(pos(sp(0.05,mt.cream),0,0,0));
+  c.add(pos(sp(0.04,mt.cream),0.05,-0.01,0));
+  c.add(pos(sp(0.035,mt.cream),-0.04,-0.008,0));
+  c.position.set(x,y,z);scene.add(c);
+}
+addCloud(-1.4,2.0,RD/2-0.008);addCloud(-0.3,2.32,RD/2-0.008);addCloud(-0.9,1.7,RD/2-0.008);
+
+// "MANEX" green canvas art
+const artG=new THREE.Group();
+const canvas=bx(0.45,0.38,0.015,mt.green);artG.add(canvas);
+for(let i=0;i<5;i++){
+  const l=bx(0.06,0.08,0.008,ltCols[i]);pos(l,-0.14+i*0.07,0.08,0.01);artG.add(l);
+}
+// Small drawings on canvas
+for(let i=0;i<3;i++){
+  const dr=bx(0.06,0.05,0.008,mt.cream);pos(dr,-0.1+i*0.1,-0.08,0.01);artG.add(dr);
+}
+artG.position.set(-0.9,2.05,RD/2-0.03);scene.add(artG);
+
+// Growth chart
+const gc=bx(0.015,1.2,0.1,mt.growthChart);pos(gc,-RW/2+0.04,1.15,1.55);scene.add(gc);
+const gcColors=[mt.red,mt.green,mt.blueMid,mt.yellow,mt.orange,mt.plantGreen];
+for(let i=0;i<10;i++){
+  const mk=bx(0.012,0.015,0.06,gcColors[i%6]);pos(mk,-RW/2+0.047,0.65+i*0.1,1.55);scene.add(mk);
+}
+// Animal illustrations on chart
+for(let i=0;i<5;i++){
+  const an=bx(0.013,0.04,0.035,gcColors[(i+2)%6]);pos(an,-RW/2+0.048,0.72+i*0.2,1.55+0.025);scene.add(an);
+}
+
+// "Follow Your Dreams" poster (right wall)
+const pFrame=bx(0.02,0.68,0.52,mt.black);pos(pFrame,RW/2-0.02,1.7,-0.5);scene.add(pFrame);
+const pArt=bx(0.015,0.6,0.45,mt.posterArt);pos(pArt,RW/2-0.03,1.7,-0.5);scene.add(pArt);
+// Colorful splashes
+for(let i=0;i<8;i++){
+  const sp2=bx(0.01,0.06+Math.random()*0.08,0.06+Math.random()*0.06,[mt.red,mt.blueMid,mt.yellow,mt.orange,mt.green][i%5]);
+  pos(sp2,RW/2-0.035,1.55+Math.random()*0.3,-0.5-0.15+Math.random()*0.3);scene.add(sp2);
+}
+
+// Blue bunting
+for(let i=0;i<8;i++){
+  const fl=bx(0.015,0.1,0.07,i%2===0?mt.blueDark:mt.blueLight);
+  pos(fl,RW/2-0.02,2.18,-1.1+i*0.22);fl.rotation.x=0.3;scene.add(fl);
+}
+const bStr=bx(0.003,0.003,1.6,mt.blueDark);pos(bStr,RW/2-0.02,2.24,-0.35);scene.add(bStr);
+
+// Cork bulletin board
+const cork=bx(0.02,0.32,0.46,mt.corkBoard);pos(cork,RW/2-0.02,1.48,0.2);scene.add(cork);
+// Photos pinned
+const ph1=bx(0.015,0.11,0.15,mt.photo);pos(ph1,RW/2-0.03,1.52,0.15);scene.add(ph1);
+const ph2=bx(0.015,0.11,0.15,mt.bluePale);pos(ph2,RW/2-0.03,1.48,0.33);scene.add(ph2);
+const ph3=bx(0.015,0.08,0.12,mt.photo);pos(ph3,RW/2-0.03,1.42,0.1);scene.add(ph3);
+// Athletic shield
+const ath=bx(0.012,0.06,0.05,mt.red);pos(ath,RW/2-0.032,1.58,0.08);scene.add(ath);
+const athS=bx(0.013,0.06,0.012,mt.warmWhite);pos(athS,RW/2-0.035,1.58,0.08);scene.add(athS);
+
+// Wall shelf above desk
+const wsh=bx(0.015,0.015,0.55,mt.warmWhite);pos(wsh,RW/2-0.02,1.98,0.6);scene.add(wsh);
+// Plant
+const potM=cy(0.025,0.02,0.04,8,mt.potTerra);pos(potM,RW/2-0.02,2.03,0.72);scene.add(potM);
+const plnt=sp(0.05,mt.plantGreen);pos(plnt,RW/2-0.02,2.08,0.72);scene.add(plnt);
+// Trophy
+const trp=cy(0.018,0.025,0.06,8,mt.yellow);pos(trp,RW/2-0.02,2.03,0.5);scene.add(trp);
+const trpCup=cy(0.02,0.012,0.03,8,mt.yellow);pos(trpCup,RW/2-0.02,2.08,0.5);scene.add(trpCup);
+
+// ─── BEAN BAG ───
+const bbag=sp(0.26,mt.bean);pos(bbag,-1.5,0.15,0.6);bbag.scale.set(1.1,0.6,1);scene.add(bbag);
+const bbag2=sp(0.18,mt.bean);pos(bbag2,-1.5,0.28,0.52);scene.add(bbag2);
+
+// ─── ORIGAMI LAMP ───
+const lamp=new THREE.Group();
+const lSph=sp(0.18,mt.lampShade);lamp.add(lSph);
+for(let i=0;i<14;i++){
+  const spike=new THREE.Mesh(new THREE.ConeGeometry(0.055,0.13,4),mt.lampShade);
+  const p=Math.acos(-1+(2*i)/14);const t=Math.sqrt(14*Math.PI)*p;
+  spike.position.set(0.18*Math.cos(t)*Math.sin(p),0.18*Math.cos(p),0.18*Math.sin(t)*Math.sin(p));
+  spike.lookAt(spike.position.clone().multiplyScalar(2.5));lamp.add(spike);
+}
+const lBulb=new THREE.PointLight(0xfff5e0,0.4,4);lamp.add(lBulb);
+const cable=cy(0.006,0.006,0.55,6,mt.black);pos(cable,0,0.42,0);lamp.add(cable);
+lamp.position.set(-0.5,RH-0.3,0.5);scene.add(lamp);
+
+// ─── Small shelf unit ───
+const smShelf=bx(0.42,0.42,0.28,mt.warmWhite);pos(smShelf,1.68,0.23,0.8);scene.add(smShelf);
+const smDiv=bx(0.01,0.38,0.26,mt.warmWhite);pos(smDiv,1.68,0.23,0.8);scene.add(smDiv);
+// Toy vehicles
+const tv1=bx(0.1,0.05,0.045,mt.red);pos(tv1,1.6,0.48,0.75);scene.add(tv1);
+const tv2=bx(0.08,0.045,0.04,mt.blueMid);pos(tv2,1.75,0.48,0.85);scene.add(tv2);
+// Globe
+const glbBase=cy(0.03,0.035,0.02,8,mt.globeBase);pos(glbBase,1.68,0.48,0.72);scene.add(glbBase);
+const glbPost=cy(0.005,0.005,0.08,6,mt.globeBase);pos(glbPost,1.68,0.52,0.72);scene.add(glbPost);
+const glb=sp(0.06,mt.globe);pos(glb,1.68,0.58,0.72);scene.add(glb);
+// Land masses on globe
+for(let i=0;i<4;i++){
+  const land=bx(0.025,0.02,0.005,mt.globeLand);
+  const a=(i/4)*Math.PI*2;
+  pos(land,1.68+Math.cos(a)*0.055,0.58+Math.sin(a)*0.02,0.72+0.05);scene.add(land);
+}
+
+// ─── ORBIT CONTROLS ───
+let mDown=false,rDown=false,mx,my;
+let rX=0.45,rY=-0.55,tRX=0.45,tRY=-0.55;
+let dist=8.5,tDist=8.5;
+let pX=0,pY=1.2,pZ=0,tPX=0,tPY=1.2,tPZ=0;
+
+renderer.domElement.addEventListener('mousedown',e=>{
+  if(e.button===0){mDown=true;mx=e.clientX;my=e.clientY}
+  if(e.button===2){rDown=true;mx=e.clientX;my=e.clientY}
+});
+renderer.domElement.addEventListener('mousemove',e=>{
+  const dx=e.clientX-mx,dy=e.clientY-my;
+  if(mDown){tRY-=dx*0.004;tRX-=dy*0.004;tRX=Math.max(-1.3,Math.min(1.3,tRX))}
+  if(rDown){tPX-=dx*0.003*Math.cos(rY);tPZ-=dx*0.003*Math.sin(rY);tPY+=dy*0.003}
+  mx=e.clientX;my=e.clientY;
+});
+window.addEventListener('mouseup',()=>{mDown=false;rDown=false});
+renderer.domElement.addEventListener('wheel',e=>{e.preventDefault();tDist+=e.deltaY*0.004;tDist=Math.max(2,Math.min(16,tDist))},{passive:false});
+renderer.domElement.addEventListener('contextmenu',e=>e.preventDefault());
+
+let tDist0=0;
+renderer.domElement.addEventListener('touchstart',e=>{
+  e.preventDefault();
+  if(e.touches.length===1){mDown=true;mx=e.touches[0].clientX;my=e.touches[0].clientY}
+  else if(e.touches.length===2){mDown=false;tDist0=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY)}
+},{passive:false});
+renderer.domElement.addEventListener('touchmove',e=>{
+  e.preventDefault();
+  if(e.touches.length===1&&mDown){
+    const dx=e.touches[0].clientX-mx,dy=e.touches[0].clientY-my;
+    tRY-=dx*0.004;tRX-=dy*0.004;tRX=Math.max(-1.3,Math.min(1.3,tRX));
+    mx=e.touches[0].clientX;my=e.touches[0].clientY;
+  }else if(e.touches.length===2){
+    const d=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);
+    tDist-=(d-tDist0)*0.015;tDist=Math.max(2,Math.min(16,tDist));tDist0=d;
+  }
+},{passive:false});
+renderer.domElement.addEventListener('touchend',()=>{mDown=false});
+
+// ─── WALL / ROOF TOGGLE ───
+let wallsTransparent=true, roofRemoved=true;
+
+function setGroupOpacity(group,opacity){
+  group.traverse(child=>{
+    if(child.isMesh){
+      child.material=child.material.clone();
+      child.material.transparent=true;
+      child.material.opacity=opacity;
+      child.material.depthWrite=opacity>0.5;
+    }
+  });
+}
+
+// Start with transparent walls and no roof
+setGroupOpacity(wallsGroup,0.12);
+ceilingGroup.visible=false;
+
+function toggleWalls(){
+  wallsTransparent=!wallsTransparent;
+  setGroupOpacity(wallsGroup,wallsTransparent?0.12:1.0);
+  document.getElementById('wallBtn').textContent=wallsTransparent?'Hormak: Gardenak':'Hormak: Solidoak';
+  document.getElementById('wallBtn').classList.toggle('active',wallsTransparent);
+}
+
+function toggleRoof(){
+  roofRemoved=!roofRemoved;
+  ceilingGroup.visible=!roofRemoved;
+  document.getElementById('roofBtn').textContent=roofRemoved?'Sabaia: Kenduta':'Sabaia: Jarrita';
+  document.getElementById('roofBtn').classList.toggle('active',roofRemoved);
+}
+
+// ─── FLY TO ───
+function flyTo(t){
+  document.querySelectorAll('.btn:not(.special)').forEach(b=>b.classList.remove('active'));
+  if(event&&event.target)event.target.classList.add('active');
+  switch(t){
+    case'overview':tDist=8.5;tRX=0.45;tRY=-0.55;tPX=0;tPY=1.2;tPZ=0;showLabel('Ikuspegi orokorra');break;
+    case'bed':tDist=4;tRX=0.35;tRY=-1.8;tPX=-0.9;tPY=0.7;tPZ=1.1;showLabel('Ohea — Stitch eta peluche');break;
+    case'desk':tDist=3.5;tRX=0.3;tRY=0.3;tPX=1.3;tPY=1.0;tPZ=-0.2;showLabel('Ikasteko mahaia');break;
+    case'wardrobe':tDist=4.5;tRX=0.3;tRY=-0.15;tPX=-0.3;tPY=1.0;tPZ=-1.4;showLabel('Armairua eta liburutegia');break;
+    case'top':tDist=7;tRX=1.2;tRY=-0.4;tPX=0;tPY=0.5;tPZ=0;showLabel('Goitik ikusita');break;
+  }
+}
+function showLabel(txt){const el=document.getElementById('label');el.textContent=txt;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),2200)}
+
+// ─── ANIMATE ───
+function animate(){
+  requestAnimationFrame(animate);
+  rX+=(tRX-rX)*0.07;rY+=(tRY-rY)*0.07;dist+=(tDist-dist)*0.07;
+  pX+=(tPX-pX)*0.07;pY+=(tPY-pY)*0.07;pZ+=(tPZ-pZ)*0.07;
+  camera.position.set(pX+dist*Math.cos(rX)*Math.sin(rY),pY+dist*Math.sin(rX),pZ+dist*Math.cos(rX)*Math.cos(rY));
+  camera.lookAt(pX,pY,pZ);
+  renderer.render(scene,camera);
+}
+
+window.addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
+
+document.getElementById('wallBtn').classList.add('active');
+document.getElementById('roofBtn').classList.add('active');
+
+setTimeout(()=>document.getElementById('loading').classList.add('hide'),600);
+animate();
+</script>
+</body>
+</html>
